@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YardSim 🌱</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Main canvas -->
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- Top toolbar -->
+  <div id="toolbar">
+    <h1>🌱 YardSim</h1>
+
+    <div class="toolbar-sep"></div>
+
+    <div class="toolbar-group">
+      <span class="toolbar-label">Layers</span>
+      <button id="toggle_sunZones"       class="btn btn-layer">☀️ Sun Zones</button>
+      <button id="toggle_grid"           class="btn btn-layer">⊞ Grid</button>
+      <button id="toggle_gardenOutlines" class="btn btn-layer">🌿 Gardens</button>
+      <button id="toggle_propertyOutline" class="btn btn-layer">🔴 Boundary</button>
+    </div>
+
+    <div class="toolbar-sep"></div>
+
+    <div class="toolbar-group">
+      <button id="btnFitView"    class="btn btn-ghost">⊡ Fit View</button>
+      <button id="btnOpenEditor" class="btn btn-primary">✏️ Zone Editor</button>
+    </div>
+  </div>
+
+  <!-- Zone Editor panel (slides in from right) -->
+  <div id="editorPanel">
+    <h2>✏️ Zone Editor</h2>
+    <p>Calibrate the zone polygons to match your yard exactly.</p>
+
+    <div class="editor-instructions">
+      <strong>How to edit a zone:</strong><br>
+      1. Pick a zone below and click <strong>Load</strong><br>
+      2. <strong>Click</strong> on the map to add / move points<br>
+      3. <strong>Right-click</strong> to remove the last point<br>
+      4. <kbd>Enter</kbd> or <strong>Save</strong> when done<br>
+      5. <kbd>Esc</kbd> to clear in-progress points<br>
+      6. <kbd>F</kbd> to reset view, <kbd>E</kbd> to toggle panel
+    </div>
+
+    <label for="editorZoneSelect" style="font-size:12px;color:var(--text-muted)">Zone to edit:</label>
+    <select id="editorZoneSelect">
+      <option value="property">Property Boundary (red)</option>
+      <option value="garden_house">Garden — near house (green)</option>
+      <option value="garden_main">Garden — main (green)</option>
+    </select>
+
+    <div class="editor-row">
+      <button id="btnLoadZone"  class="btn btn-ghost">📥 Load Zone</button>
+      <button id="btnClearZone" class="btn btn-ghost">🗑 Clear Points</button>
+    </div>
+
+    <div class="editor-divider"></div>
+
+    <div class="editor-row">
+      <button id="btnSaveZone"   class="btn btn-primary">💾 Save Zone</button>
+      <button id="btnCopyJSON"   class="btn btn-ghost">📋 Copy JSON</button>
+    </div>
+
+    <div class="editor-divider"></div>
+
+    <button id="btnResetZones" class="btn btn-danger" style="width:100%">↩ Reset All to Defaults</button>
+  </div>
+
+  <!-- Toast notification (created by JS, styled by CSS) -->
+
+  <!-- Scripts -->
+  <script src="js/zones.js"></script>
+  <script src="js/chicken.js"></script>
+  <script src="js/terrain.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>

@@ -1,0 +1,105 @@
+// Zone polygon coordinates in image-pixel space (954 × 972 image)
+// Calibrated 2026-06-13 via zone editor.
+// Bump ZONE_VERSION to force-replace any stale localStorage data.
+
+const ZONE_VERSION = 2;
+
+const DEFAULT_ZONES = {
+  version: ZONE_VERSION,
+  property: {
+    id: 'property',
+    label: 'Property Boundary',
+    strokeColor: '#ff4444',
+    fillColor: 'rgba(255, 68, 68, 0.08)',
+    lineWidth: 3,
+    points: [
+      [716, 39], [928, 38], [932, 460], [930, 918],
+      [644, 745], [448, 646], [549, 442], [632, 235]
+    ]
+  },
+  gardens: [
+    {
+      id: 'garden_house',
+      label: 'Garden (near house)',
+      strokeColor: '#44dd44',
+      fillColor: 'rgba(68, 221, 68, 0.15)',
+      lineWidth: 2.5,
+      points: [
+        [843, 211], [838, 242], [697, 242], [709, 391],
+        [769, 399], [741, 435], [687, 428], [679, 220]
+      ]
+    },
+    {
+      id: 'garden_main',
+      label: 'Main Garden',
+      strokeColor: '#44dd44',
+      fillColor: 'rgba(68, 221, 68, 0.15)',
+      lineWidth: 2.5,
+      points: [
+        [834, 807], [822, 544], [894, 540], [906, 879],
+        [510, 673], [541, 595], [579, 601], [579, 665]
+      ]
+    }
+  ],
+  // Sun zones are defined as regions of the property
+  // SE corner = full sun, SW corner = full shade
+  sunZones: {
+    fullSun: {
+      label: 'Full Sun',
+      color: 'rgba(255, 215, 0, 0.22)',
+      // Rough SE triangle of the property bounding box
+      percentOfBounds: { x: 0.55, y: 0.5, w: 0.45, h: 0.5 }
+    },
+    fullShade: {
+      label: 'Full Shade',
+      color: 'rgba(60, 100, 60, 0.25)',
+      // Rough SW triangle of the property bounding box
+      percentOfBounds: { x: 0.0, y: 0.5, w: 0.45, h: 0.5 }
+    }
+  }
+};
+
+// Load zones: use localStorage only if version matches, otherwise use calibrated defaults
+function loadZones() {
+  const saved = localStorage.getItem('yardsim_zones');
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      if (parsed.version === ZONE_VERSION) return parsed;
+      // Version mismatch — fall through to defaults and overwrite
+      console.info(`Zone version mismatch (stored ${parsed.version}, current ${ZONE_VERSION}), resetting to defaults`);
+    } catch (e) {
+      console.warn('Failed to parse saved zones, using defaults');
+    }
+  }
+  const defaults = JSON.parse(JSON.stringify(DEFAULT_ZONES));
+  localStorage.setItem('yardsim_zones', JSON.stringify(defaults)); // seed immediately
+  return defaults;
+}
+
+function saveZones(zones) {
+  zones.version = ZONE_VERSION;
+  localStorage.setItem('yardsim_zones', JSON.stringify(zones));
+}
+
+// Utility: point-in-polygon (ray casting)
+function pointInPolygon(x, y, points) {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const xi = points[i][0], yi = points[i][1];
+    const xj = points[j][0], yj = points[j][1];
+    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function getBoundingBox(points) {
+  const xs = points.map(p => p[0]);
+  const ys = points.map(p => p[1]);
+  return {
+    minX: Math.min(...xs), maxX: Math.max(...xs),
+    minY: Math.min(...ys), maxY: Math.max(...ys)
+  };
+}
