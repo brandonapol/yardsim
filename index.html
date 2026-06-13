@@ -18,7 +18,30 @@
       <button id="tabStructures" class="tab-btn">🏗 Structures</button>
     </div>
     <input id="paletteSearch" type="search" placeholder="Search…" autocomplete="off" />
+    <button id="btnPlantNow" class="btn-plant-now">🌱 Plant Now in SW Ohio</button>
     <div id="paletteItems"></div>
+  </div>
+
+  <!-- Planting Calendar panel (bottom slide-up) -->
+  <div id="calPanel" class="hidden">
+    <div class="cal-header">
+      <span class="cal-title">📅 Planting Calendar — SW Ohio (Zone 6a/6b)</span>
+      <div class="cal-legend">
+        <span class="cal-swatch plant"></span>Planting window
+        <span class="cal-swatch harvest"></span>Harvest window
+        <span class="cal-swatch today"></span>Today
+      </div>
+      <button id="calClose" class="popup-close-btn" style="font-size:16px">✕</button>
+    </div>
+    <div class="cal-months-header">
+      <div class="cal-label-spacer"></div>
+      <div class="cal-months-row">
+        <div>Jan</div><div>Feb</div><div>Mar</div><div>Apr</div>
+        <div>May</div><div>Jun</div><div>Jul</div><div>Aug</div>
+        <div>Sep</div><div>Oct</div><div>Nov</div><div>Dec</div>
+      </div>
+    </div>
+    <div id="calBody"></div>
   </div>
 
   <!-- Top toolbar -->
@@ -28,7 +51,6 @@
     <div class="toolbar-sep"></div>
 
     <div class="toolbar-group">
-      <span class="toolbar-label">Layers</span>
       <button id="toggle_sunZones"        class="btn btn-layer">☀️ Sun</button>
       <button id="toggle_grid"            class="btn btn-layer">⊞ Grid</button>
       <button id="toggle_gardenOutlines"  class="btn btn-layer">🌿 Gardens</button>
@@ -38,9 +60,15 @@
     <div class="toolbar-sep"></div>
 
     <div class="toolbar-group">
-      <span class="toolbar-label">Paint</span>
       <button id="btnPaintGrass" class="btn btn-layer">🌿 Grass</button>
-      <button id="btnPaintSoil"  class="btn btn-layer">🪱 Garden</button>
+      <button id="btnPaintSoil"  class="btn btn-layer">🪱 Soil</button>
+    </div>
+
+    <div class="toolbar-sep"></div>
+
+    <div class="toolbar-group">
+      <button id="btnCompanions" class="btn btn-layer" title="Colour-code companion / antagonist neighbours">🤝 Companions</button>
+      <button id="btnCalendar"   class="btn btn-layer">📅 Calendar</button>
     </div>
 
     <div class="toolbar-sep"></div>

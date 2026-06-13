@@ -76,6 +76,7 @@ let _lastSavedAt = 0;
 const layers = {
   sunZones: true,
   grid: true,
+  companions: false,
   gardenOutlines: true,
   propertyOutline: true
 };
@@ -148,6 +149,7 @@ function fitImageToWindow() {
 function resizeCanvas() {
   canvas.width  = window.innerWidth;
   canvas.height = window.innerHeight;
+  _zonesOC = null; // force offscreen canvas to rebuild at new size
 }
 
 function spawnChickens(n) {
@@ -228,8 +230,81 @@ function render() {
   ctx.restore();
 
   drawScreenUI();
+  drawSpacingZonesOverlay(); // screen-space pass — blends radii correctly
 }
 
+
+// ============================================================
+//  SPACING ZONE OVERLAY  (screen-space, offscreen-canvas blending)
+// ============================================================
+//
+// Drawing each plant's spacing ring individually causes overlapping dashes.
+// Instead we draw ALL zones as solid filled circles onto a single offscreen
+// canvas (same color = no doubling on overlap), then composite that onto the
+// main canvas at low opacity.  The result: a smooth merged territory zone.
+
+let _zonesOC = null;
+
+function _getZoneCanvas() {
+  if (!_zonesOC || _zonesOC.width !== canvas.width || _zonesOC.height !== canvas.height) {
+    _zonesOC = document.createElement('canvas');
+    _zonesOC.width  = canvas.width;
+    _zonesOC.height = canvas.height;
+  }
+  return _zonesOC;
+}
+
+function drawSpacingZonesOverlay() {
+  const plants = placedItems.filter(it => isPlant(getCatalogEntry(it.catalogId)));
+  if (plants.length === 0 && !placement.active) return;
+
+  const oc     = _getZoneCanvas();
+  const oc_ctx = oc.getContext('2d');
+  oc_ctx.clearRect(0, 0, oc.width, oc.height);
+
+  // ── Placed plant zones (companion colour-coding when layer is on) ───
+  plants.forEach(item => {
+    const cat = getCatalogEntry(item.catalogId);
+    const r   = _spacingRingR(cat) * viewport.zoom;
+    const [sx, sy] = worldToCanvas(item.x, item.y);
+
+    let color = '#78dd50'; // default green
+    if (layers.companions) {
+      const status = _getCompanionStatus(item, cat);
+      if (status === 'good') color = '#50ddbb';  // teal — happy neighbours
+      if (status === 'bad')  color = '#dd6040';  // orange-red — antagonist nearby
+    }
+    oc_ctx.fillStyle = color;
+    oc_ctx.beginPath();
+    oc_ctx.arc(sx, sy, r, 0, Math.PI * 2);
+    oc_ctx.fill();
+  });
+
+  // Composite placed zones at low opacity
+  ctx.save();
+  ctx.globalAlpha = 0.16;
+  ctx.drawImage(oc, 0, 0);
+  ctx.restore();
+
+  // ── Selected item: highlighted ring on top (screen-space, no doubling issue) ──
+  if (selectedItemId) {
+    const item = plants.find(it => it.id === selectedItemId);
+    if (item) {
+      const cat = getCatalogEntry(item.catalogId);
+      const r   = _spacingRingR(cat) * viewport.zoom;
+      const [sx, sy] = worldToCanvas(item.x, item.y);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,220,80,0.85)';
+      ctx.lineWidth   = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.arc(sx, sy, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+  }
+}
 
 function drawSunZones() {
   const pts = zones.property.points;
@@ -488,19 +563,9 @@ function _spacingRingR(cat) {
 }
 
 function _drawPlant(ctx, cat, isSelected, item) {
-  const r = _spacingRingR(cat);
-
-  // Dashed spacing ring (thin, behind the sprite)
-  ctx.strokeStyle = isSelected ? 'rgba(255,220,80,0.55)' : 'rgba(180,230,130,0.28)';
-  ctx.lineWidth   = (isSelected ? 1.5 : 0.8) / viewport.zoom;
-  ctx.setLineDash([3 / viewport.zoom, 3 / viewport.zoom]);
-  ctx.beginPath();
-  ctx.arc(0, 0, r, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // Opaque sprite centered in the spacing circle
-  drawPlantSprite(ctx, cat, r, isSelected);
+  // Spacing zones are drawn by drawSpacingZonesOverlay() (blended, screen-space pass).
+  // Here we only draw the opaque sprite; selection ring comes from the overlay.
+  drawPlantSprite(ctx, cat, _spacingRingR(cat), isSelected);
 }
 
 function _drawStructureItem(ctx, cat, isSelected, item) {
@@ -644,6 +709,162 @@ function drawPlacementGhost(ctx) {
 }
 
 // ============================================================
+//  PHASE 3 — PLANT INTELLIGENCE
+// ============================================================
+
+// SE corner = full sun, SW = full shade, rest = partial
+function getSunZone(wx, wy) {
+  const bb = getBoundingBox(zones.property.points);
+  const midX = (bb.minX + bb.maxX) / 2;
+  const midY = (bb.minY + bb.maxY) / 2;
+  if (wx >= midX && wy >= midY) return 'full';
+  if (wx <  midX && wy >= midY) return 'shade';
+  return 'partial';
+}
+
+function checkSunAdvisory(cat, wx, wy) {
+  if (!cat.sunNeeds) return;
+  const zone = getSunZone(wx, wy);
+  const need = cat.sunNeeds;
+  if (need === 'full' && zone === 'shade')
+    showToast(`☀️ → 🌑  ${cat.name} wants full sun — this spot is shaded.`);
+  else if (need === 'full' && zone === 'partial')
+    showToast(`☀️ → 🌤  ${cat.name} prefers full sun — this spot gets some shade.`);
+  else if (need === 'partial' && zone === 'full')
+    showToast(`🌤 → ☀️  ${cat.name} prefers partial shade — this is a full-sun spot.`);
+}
+
+// Returns 'good' | 'bad' | 'neutral' based on neighbours within 4× spacing
+function _getCompanionStatus(item, cat) {
+  if (!cat.companions?.length && !cat.antagonists?.length) return 'neutral';
+  const reach = cat.spacingFt * PX_PER_FOOT * 4;
+  let good = false, bad = false;
+  for (const other of placedItems) {
+    if (other.id === item.id) continue;
+    const oc = getCatalogEntry(other.catalogId);
+    if (!oc) continue;
+    const dist = Math.hypot(other.x - item.x, other.y - item.y);
+    if (dist > reach) continue;
+    if (cat.antagonists?.includes(oc.id)) bad = true;
+    if (cat.companions?.includes(oc.id))  good = true;
+  }
+  return bad ? 'bad' : good ? 'good' : 'neutral';
+}
+
+// ── Plant-now palette filter ───────────────────────────────────
+let _paletteFilterNow = false;
+
+function togglePlantNow() {
+  _paletteFilterNow = !_paletteFilterNow;
+  document.getElementById('btnPlantNow').classList.toggle('active', _paletteFilterNow);
+  document.querySelectorAll('.palette-item').forEach(btn => {
+    const cat = getCatalogEntry(btn.dataset.id);
+    if (!cat || !cat.plantStart) { btn.classList.remove('oos'); return; }
+    btn.classList.toggle('oos', _paletteFilterNow && !inPlantingWindow(cat));
+  });
+}
+
+// ── Planting Calendar ─────────────────────────────────────────
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MONTH_IDX   = Object.fromEntries(MONTH_NAMES.map((m,i) => [m, i]));
+
+function dateToCalPos(str) {
+  if (!str) return null;
+  const [mon, day] = str.split(' ');
+  const m = MONTH_IDX[mon];
+  if (m === undefined) return null;
+  return m + (parseInt(day) || 1) / 31;
+}
+
+function buildCalendar() {
+  const body = document.getElementById('calBody');
+  body.innerHTML = '';
+
+  const plants = placedItems
+    .map(it => ({ item: it, cat: getCatalogEntry(it.catalogId) }))
+    .filter(({ cat }) => cat && isPlant(cat));
+
+  if (!plants.length) {
+    body.innerHTML = '<div class="cal-empty">No plants placed yet — add some from the palette!</div>';
+    return;
+  }
+
+  // Group by catalogId so same plant species appears once with count
+  const groups = {};
+  plants.forEach(({ item, cat }) => {
+    if (!groups[cat.id]) groups[cat.id] = { cat, count: 0 };
+    groups[cat.id].count++;
+  });
+
+  const today = new Date();
+  const todayPos = today.getMonth() + today.getDate() / 31; // 0–12
+
+  Object.values(groups).forEach(({ cat, count }) => {
+    const row = document.createElement('div');
+    row.className = 'cal-row';
+
+    // Label
+    const lbl = document.createElement('div');
+    lbl.className = 'cal-label';
+    lbl.innerHTML = `${cat.emoji} ${cat.name}${count > 1 ? ` <span class="cal-count">×${count}</span>` : ''}`;
+    row.appendChild(lbl);
+
+    // Timeline track
+    const track = document.createElement('div');
+    track.className = 'cal-track';
+
+    const s = dateToCalPos(cat.plantStart);
+    const e = cat.plantEnd ? dateToCalPos(cat.plantEnd) : (s !== null ? s + 0.5 : null);
+
+    if (s !== null && e !== null) {
+      // Planting window bar
+      addBar(track, s, e, 'cal-bar-plant', `Plant: ${cat.plantStart}–${cat.plantEnd || ''}`);
+
+      // Harvest window bars
+      if (cat.daysToHarvest) {
+        const hMin = s + cat.daysToHarvest[0] / 30.5;
+        const hMax = s + cat.daysToHarvest[1] / 30.5;
+        addBar(track, hMin, Math.min(hMax, 11.99), 'cal-bar-harvest',
+               `Harvest ~${cat.daysToHarvest[0]}–${cat.daysToHarvest[1]} days after planting`);
+      }
+    }
+
+    // Today marker
+    const todayEl = document.createElement('div');
+    todayEl.className = 'cal-today';
+    todayEl.style.left = `${(todayPos / 12) * 100}%`;
+    track.appendChild(todayEl);
+
+    row.appendChild(track);
+    body.appendChild(row);
+  });
+}
+
+function addBar(track, start, end, cls, title) {
+  if (start > 12 || end < 0) return;
+  start = Math.max(0, start);
+  end   = Math.min(12, end);
+  const bar = document.createElement('div');
+  bar.className = `cal-bar ${cls}`;
+  bar.style.left  = `${(start / 12) * 100}%`;
+  bar.style.width = `${((end - start) / 12) * 100}%`;
+  bar.title = title;
+  track.appendChild(bar);
+}
+
+function toggleCalendar() {
+  const panel = document.getElementById('calPanel');
+  const isOpen = !panel.classList.contains('hidden');
+  if (isOpen) {
+    panel.classList.add('hidden');
+  } else {
+    buildCalendar();
+    panel.classList.remove('hidden');
+  }
+  document.getElementById('btnCalendar').classList.toggle('active', !isOpen);
+}
+
+// ============================================================
 //  PLACEMENT LOGIC
 // ============================================================
 
@@ -705,17 +926,19 @@ function finalizePlantRow(cx, cy) {
 }
 
 function confirmPlacement(cat, sx, sy) {
-  const item = {
-    id:          crypto.randomUUID(),
-    catalogId:   cat.id,
-    x:           sx,
-    y:           sy,
-    rotation:    0,
-    placedDate:  new Date().toISOString().slice(0, 10),
-    notes:       ''
-  };
-  placedItems.push(item);
+  if (isPlant(cat)) checkSunAdvisory(cat, sx, sy);
+  placedItems.push({
+    id:         crypto.randomUUID(),
+    catalogId:  cat.id,
+    x:          sx,
+    y:          sy,
+    rotation:   0,
+    placedDate: new Date().toISOString().slice(0, 10),
+    notes:      ''
+  });
   scheduleSave();
+  // Rebuild calendar if open
+  if (!document.getElementById('calPanel').classList.contains('hidden')) buildCalendar();
 }
 
 // ============================================================
@@ -752,6 +975,7 @@ function deleteSelectedItem() {
   selectedItemId = null;
   hideItemPopup();
   scheduleSave();
+  if (!document.getElementById('calPanel').classList.contains('hidden')) buildCalendar();
 }
 
 // ============================================================
@@ -1413,6 +1637,20 @@ function setupUI() {
   document.getElementById('btnExportMap').addEventListener('click', exportMapAsJSON);
   document.getElementById('popupDelete').addEventListener('click', deleteSelectedItem);
   document.getElementById('popupClose').addEventListener('click',  hideItemPopup);
+  document.getElementById('btnCompanions').addEventListener('click', () => {
+    layers.companions = !layers.companions;
+    document.getElementById('btnCompanions').classList.toggle('active', layers.companions);
+  });
+  document.getElementById('btnCalendar').addEventListener('click', toggleCalendar);
+  document.getElementById('calClose').addEventListener('click', toggleCalendar);
+  document.getElementById('btnPlantNow').addEventListener('click', togglePlantNow);
+  // Layer toggle for companions
+  const btnToggleComp = document.getElementById('toggle_companions');
+  if (btnToggleComp) btnToggleComp.addEventListener('click', () => {
+    layers.companions = !layers.companions;
+    btnToggleComp.classList.toggle('active', layers.companions);
+    document.getElementById('btnCompanions').classList.toggle('active', layers.companions);
+  });
 }
 
 function toggleEditorPanel() {
