@@ -1,8 +1,10 @@
 // Zone polygon coordinates in image-pixel space (954 × 972 image)
-// Calibrated 2026-06-13 via zone editor.
-// Bump ZONE_VERSION to force-replace any stale localStorage data.
+// Scale: 5 px/ft  (driveway = 40px = 8ft, property 880px N–S = 176ft ≈ 60 yds)
+// All corners snapped to 1ft grid (multiples of 5px).
+// Calibrated via zone editor + export 2026-06-13.
+// Bump ZONE_VERSION to force-replace stale localStorage data.
 
-const ZONE_VERSION = 2;
+const ZONE_VERSION = 4;
 
 const DEFAULT_ZONES = {
   version: ZONE_VERSION,
@@ -13,8 +15,8 @@ const DEFAULT_ZONES = {
     fillColor: 'rgba(255, 68, 68, 0.08)',
     lineWidth: 3,
     points: [
-      [716, 39], [928, 38], [932, 460], [930, 918],
-      [644, 745], [448, 646], [549, 442], [632, 235]
+      [715, 40], [930, 40], [930, 460], [930, 920],
+      [640, 750], [450, 645], [550, 440], [630, 235]
     ]
   },
   gardens: [
@@ -25,8 +27,8 @@ const DEFAULT_ZONES = {
       fillColor: 'rgba(68, 221, 68, 0.15)',
       lineWidth: 2.5,
       points: [
-        [843, 211], [838, 242], [697, 242], [709, 391],
-        [769, 399], [741, 435], [687, 428], [679, 220]
+        [845, 210], [845, 240], [710, 240], [710, 390],
+        [765, 390], [760, 415], [700, 415], [700, 220]
       ]
     },
     {
@@ -36,8 +38,8 @@ const DEFAULT_ZONES = {
       fillColor: 'rgba(68, 221, 68, 0.15)',
       lineWidth: 2.5,
       points: [
-        [834, 807], [822, 544], [894, 540], [906, 879],
-        [510, 673], [541, 595], [579, 601], [579, 665]
+        [860, 850], [860, 540], [930, 540], [930, 920],
+        [510, 675], [540, 595], [580, 600], [580, 665], [665, 735]
       ]
     }
   ],

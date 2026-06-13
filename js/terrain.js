@@ -1,21 +1,43 @@
 // Procedural cartoon terrain renderer.
-// Tiles are aligned to the coarse grid (TILE_SIZE × TILE_SIZE world pixels).
-// All drawing is in world space — the viewport transform is already applied by the caller.
+// Scale: 5 px/ft. TILE_SIZE = 5px = 1ft per tile (snaps to placement grid).
+// Drawing is in world space — viewport transform is already applied by caller.
 
-const TILE_SIZE = 20; // world px per tile = 8ft @ 2.5px/ft; matches GRID_PX_COARSE
+const TILE_SIZE = 5; // world px per tile (2ft × 2.5px/ft)
 
 const TILE_EXTERIOR = 0;
 const TILE_GRASS    = 1;
 const TILE_SOIL     = 2;
 
-// Color palettes — multiple variants per type for visual variation
 const GRASS_COLORS = ['#527e3c', '#5a8842', '#628e4a', '#4e7836', '#6a9652', '#578542'];
 const SOIL_COLORS  = ['#8b5e3c', '#7a5030', '#986848', '#6e4828', '#8a5a36'];
 const EXT_COLORS   = ['#2e4824', '#253c1c', '#334f28', '#2a421f', '#2d4720'];
 
-// Tile type cache — zone membership is expensive; invalidate when zones change
-let _typeCache  = new Map();
-let _cacheTag   = '';
+// ─── Custom painted tiles (user overrides zone-based type) ────
+// key: "tx,ty"  value: TILE_GRASS | TILE_SOIL
+let _customTiles = {};
+
+function setCustomTile(tx, ty, type) {
+  const key = `${tx},${ty}`;
+  if (type === null) {
+    delete _customTiles[key];
+  } else {
+    _customTiles[key] = type;
+  }
+  _typeCache.delete(key); // invalidate cached entry for this cell
+}
+
+function clearCustomTile(tx, ty) { setCustomTile(tx, ty, null); }
+
+function getCustomTiles() { return { ..._customTiles }; }
+
+function loadCustomTiles(data) {
+  _customTiles = data || {};
+  _typeCache.clear();
+}
+
+// ─── Zone-based type cache ────────────────────────────────────
+let _typeCache = new Map();
+let _cacheTag  = '';
 
 function _zoneTag(zones) {
   return zones.property.points.flat().join(',') + '|' + zones.gardens.length;
@@ -27,13 +49,19 @@ function invalidateTerrainCache() {
 }
 
 function _getType(tx, ty, zones) {
+  const key = `${tx},${ty}`;
+
   const tag = _zoneTag(zones);
   if (tag !== _cacheTag) { _typeCache.clear(); _cacheTag = tag; }
-
-  const key = (tx << 16) ^ ty; // fast integer key
   if (_typeCache.has(key)) return _typeCache.get(key);
 
-  // Check the center of the tile
+  // Custom override wins over zone-based calculation
+  if (Object.prototype.hasOwnProperty.call(_customTiles, key)) {
+    const t = _customTiles[key];
+    _typeCache.set(key, t);
+    return t;
+  }
+
   const cx = (tx + 0.5) * TILE_SIZE;
   const cy = (ty + 0.5) * TILE_SIZE;
   let type = TILE_EXTERIOR;
@@ -45,7 +73,7 @@ function _getType(tx, ty, zones) {
   return type;
 }
 
-// Deterministic per-tile RNG — same tile always looks the same
+// ─── Deterministic per-tile RNG ───────────────────────────────
 function _makeRng(tx, ty) {
   let s = ((tx * 1234567) ^ (ty * 7654321) ^ 99991) | 0;
   return function () {
@@ -55,10 +83,9 @@ function _makeRng(tx, ty) {
   };
 }
 
-// ─── Public ───────────────────────────────────────────────────
+// ─── Public API ───────────────────────────────────────────────
 
 function drawTerrain(ctx, viewport, zones, cw, ch) {
-  // Viewport-cull: only draw tiles actually on screen
   const x0 = (0  - viewport.x) / viewport.zoom;
   const y0 = (0  - viewport.y) / viewport.zoom;
   const x1 = (cw - viewport.x) / viewport.zoom;
@@ -76,7 +103,7 @@ function drawTerrain(ctx, viewport, zones, cw, ch) {
   }
 }
 
-// ─── Tile draw ────────────────────────────────────────────────
+// ─── Tile rendering ───────────────────────────────────────────
 
 function _drawTile(ctx, tx, ty, zones, zoom) {
   const type = _getType(tx, ty, zones);
@@ -92,126 +119,110 @@ function _drawTile(ctx, tx, ty, zones, zoom) {
   ctx.fillStyle = palette[Math.floor(rand() * palette.length)];
   ctx.fillRect(wx, wy, s, s);
 
-  if      (type === TILE_GRASS) _grassDetails(ctx, wx, wy, s, rand, zoom);
-  else if (type === TILE_SOIL)  _soilDetails(ctx, wx, wy, s, rand, zoom);
-  else                          _extDetails(ctx, wx, wy, s, rand, zoom);
+  // Skip all detail work at very low zoom (tiles are < 4px on screen)
+  const screenSize = s * zoom;
+  if (screenSize < 4) return;
+
+  if      (type === TILE_GRASS) _grassDetails(ctx, wx, wy, s, rand, zoom, screenSize);
+  else if (type === TILE_SOIL)  _soilDetails(ctx, wx, wy, s, rand, zoom, screenSize);
+  else if (screenSize > 6)      _extDetails(ctx, wx, wy, s, rand);
 }
 
-// ─── Grass ────────────────────────────────────────────────────
+function _grassDetails(ctx, wx, wy, s, rand, zoom, screenSize) {
+  if (screenSize < 6) return;
 
-function _grassDetails(ctx, wx, wy, s, rand, zoom) {
-  // Ambient light — top-left highlight, bottom shadow
+  // Top-left highlight / bottom shadow (pseudo-3D)
   ctx.fillStyle = 'rgba(255,255,255,0.07)';
-  ctx.fillRect(wx, wy, s, 2);
-  ctx.fillRect(wx, wy, 2, s);
+  ctx.fillRect(wx, wy, s, 1);
+  ctx.fillRect(wx, wy, 1, s);
   ctx.fillStyle = 'rgba(0,0,0,0.09)';
-  ctx.fillRect(wx, wy + s - 2, s, 2);
+  ctx.fillRect(wx, wy + s - 1, s, 1);
 
-  // Occasional shadow blob (dappled light / slight depression)
-  if (rand() > 0.62) {
-    const pr = 3 + rand() * 5;
-    const px = wx + pr + rand() * (s - pr * 2);
-    const py = wy + pr + rand() * (s - pr * 2);
+  // Occasional dappled shadow blob
+  if (rand() > 0.62 && screenSize > 10) {
+    const pr = (1.5 + rand() * 2.5);
     ctx.fillStyle = 'rgba(0,0,0,0.07)';
     ctx.beginPath();
-    ctx.ellipse(px, py, pr, pr * 0.65, rand() * Math.PI, 0, Math.PI * 2);
+    ctx.ellipse(wx + pr + rand() * (s - pr * 2), wy + pr + rand() * (s - pr * 2),
+                pr, pr * 0.65, rand() * Math.PI, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  if (zoom < 1.5) return;
+  if (screenSize < 10) return; // tufts only when tile is ≥10px on screen
 
-  // ── Grass tufts (2–4 per tile) ──
+  // Grass tufts (2–4 per tile)
   const n = 2 + Math.floor(rand() * 3);
-  ctx.strokeStyle = 'rgba(55, 105, 30, 0.70)';
-  ctx.lineWidth   = Math.max(0.4, 0.7 / zoom);
+  ctx.strokeStyle = 'rgba(55, 105, 30, 0.68)';
+  ctx.lineWidth   = Math.max(0.3, 0.6 / zoom);
   ctx.lineCap     = 'round';
   for (let i = 0; i < n; i++) {
-    const bx = wx + 3 + rand() * (s - 6);
-    const by = wy + 4 + rand() * (s - 7);
-    const h  = 1.6 + rand() * 2.0;
-    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx - h * 0.55, by - h);        ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + h * 0.55, by - h);        ctx.stroke();
+    const bx = wx + 0.8 + rand() * (s - 1.6);
+    const by = wy + 1   + rand() * (s - 2);
+    const h  = 0.8 + rand() * 1.2;
+    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx - h * 0.55, by - h);       ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + h * 0.55, by - h);       ctx.stroke();
     ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx,             by - h * 1.2); ctx.stroke();
   }
 
-  if (zoom < 2.5) return;
+  if (screenSize < 18) return; // flowers only at higher zoom
 
-  // ── Occasional wildflower (1-in-5 tiles) ──
+  // Occasional wildflower (1-in-5 tiles)
   if (rand() > 0.80) {
-    const fx = wx + 4 + rand() * (s - 8);
-    const fy = wy + 4 + rand() * (s - 8);
+    const fx = wx + 1 + rand() * (s - 2);
+    const fy = wy + 1 + rand() * (s - 2);
     const FLOWER_COLORS = ['#ffcc44','#ff9999','#cc88ff','#ffffff','#ffbbcc','#88ddff'];
-    // Petals
-    ctx.fillStyle = FLOWER_COLORS[Math.floor(rand() * FLOWER_COLORS.length)];
+    const fc = FLOWER_COLORS[Math.floor(rand() * FLOWER_COLORS.length)];
     for (let p = 0; p < 5; p++) {
-      const angle = (p / 5) * Math.PI * 2;
+      const a = (p / 5) * Math.PI * 2;
+      ctx.fillStyle = fc;
       ctx.beginPath();
-      ctx.arc(fx + Math.cos(angle) * 1.3, fy + Math.sin(angle) * 1.3, 1.1, 0, Math.PI * 2);
+      ctx.arc(fx + Math.cos(a) * 0.65, fy + Math.sin(a) * 0.65, 0.55, 0, Math.PI * 2);
       ctx.fill();
     }
-    // Centre
     ctx.fillStyle = '#ffe066';
     ctx.beginPath();
-    ctx.arc(fx, fy, 0.8, 0, Math.PI * 2);
+    ctx.arc(fx, fy, 0.4, 0, Math.PI * 2);
     ctx.fill();
   }
 }
 
-// ─── Soil (garden beds) ───────────────────────────────────────
+function _soilDetails(ctx, wx, wy, s, rand, zoom, screenSize) {
+  if (screenSize < 8) return;
 
-function _soilDetails(ctx, wx, wy, s, rand, zoom) {
-  const rowGap = 4; // world px between tilled rows
-
-  // Dark furrows
-  ctx.lineWidth   = 0.8;
-  ctx.strokeStyle = 'rgba(0,0,0,0.20)';
-  for (let ry = wy + rowGap; ry < wy + s; ry += rowGap) {
+  // Tilled furrow rows — one dark line per tile at low zoom, denser at high
+  const step = screenSize > 20 ? s / 2 : s;
+  ctx.lineWidth   = Math.max(0.3, 0.5 / zoom);
+  ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+  for (let ry = wy + step; ry < wy + s; ry += step) {
     ctx.beginPath(); ctx.moveTo(wx, ry); ctx.lineTo(wx + s, ry); ctx.stroke();
   }
-  // Light ridges between furrows
-  ctx.strokeStyle = 'rgba(255,255,255,0.09)';
-  for (let ry = wy + rowGap * 0.5; ry < wy + s; ry += rowGap) {
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  for (let ry = wy + step * 0.5; ry < wy + s; ry += step) {
     ctx.beginPath(); ctx.moveTo(wx, ry); ctx.lineTo(wx + s, ry); ctx.stroke();
   }
-  // Bottom edge shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.11)';
+  ctx.fillStyle = 'rgba(0,0,0,0.10)';
   ctx.fillRect(wx, wy + s - 1, s, 1);
 
-  if (zoom < 2) return;
+  if (screenSize < 15) return; // pebbles at closer zoom only
 
-  // ── Pebbles ──
-  const n = Math.floor(rand() * 3); // 0–2
+  const n = Math.floor(rand() * 2);
   for (let i = 0; i < n; i++) {
-    const px = wx + 2 + rand() * (s - 4);
-    const py = wy + 2 + rand() * (s - 4);
-    const pr = 0.6 + rand() * 0.9;
-    const gr = 130 + Math.floor(rand() * 50);
-    ctx.fillStyle = `rgba(${160 + Math.floor(rand()*35)},${gr},${100 + Math.floor(rand()*30)},0.72)`;
+    const pr = 0.3 + rand() * 0.5;
+    ctx.fillStyle = `rgba(${155+Math.floor(rand()*40)},${125+Math.floor(rand()*30)},${95+Math.floor(rand()*30)},0.7)`;
     ctx.beginPath();
-    ctx.ellipse(px, py, pr, pr * 0.65, rand() * Math.PI, 0, Math.PI * 2);
+    ctx.ellipse(wx + 0.5 + rand() * (s - 1), wy + 0.5 + rand() * (s - 1),
+                pr, pr * 0.65, rand() * Math.PI, 0, Math.PI * 2);
     ctx.fill();
   }
 }
 
-// ─── Exterior (outside property) ──────────────────────────────
-
-function _extDetails(ctx, wx, wy, s, rand, zoom) {
-  // Tree canopy blobs — suggests dense vegetation outside
+function _extDetails(ctx, wx, wy, s, rand) {
+  // Tree canopy shadow blobs
   const n = 1 + Math.floor(rand() * 3);
+  ctx.fillStyle = 'rgba(0,0,0,0.13)';
   for (let i = 0; i < n; i++) {
-    const pr = 4 + rand() * 8;
-    const px = wx + rand() * s;
-    const py = wy + rand() * s;
-    ctx.fillStyle = 'rgba(0,0,0,0.13)';
     ctx.beginPath();
-    ctx.arc(px, py, pr, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  // Rare gap in canopy (lighter circle)
-  if (rand() > 0.78) {
-    ctx.fillStyle = 'rgba(255,255,255,0.04)';
-    ctx.beginPath();
-    ctx.arc(wx + rand() * s, wy + rand() * s, 2 + rand() * 5, 0, Math.PI * 2);
+    ctx.arc(wx + rand() * s, wy + rand() * s, 2 + rand() * 4, 0, Math.PI * 2);
     ctx.fill();
   }
 }

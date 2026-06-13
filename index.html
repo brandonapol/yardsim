@@ -11,6 +11,16 @@
   <!-- Main canvas -->
   <canvas id="gameCanvas"></canvas>
 
+  <!-- Left palette sidebar -->
+  <div id="palette">
+    <div class="palette-tabs">
+      <button id="tabPlants"     class="tab-btn active">🌱 Plants</button>
+      <button id="tabStructures" class="tab-btn">🏗 Structures</button>
+    </div>
+    <input id="paletteSearch" type="search" placeholder="Search…" autocomplete="off" />
+    <div id="paletteItems"></div>
+  </div>
+
   <!-- Top toolbar -->
   <div id="toolbar">
     <h1>🌱 YardSim</h1>
@@ -19,65 +29,105 @@
 
     <div class="toolbar-group">
       <span class="toolbar-label">Layers</span>
-      <button id="toggle_sunZones"       class="btn btn-layer">☀️ Sun Zones</button>
-      <button id="toggle_grid"           class="btn btn-layer">⊞ Grid</button>
-      <button id="toggle_gardenOutlines" class="btn btn-layer">🌿 Gardens</button>
+      <button id="toggle_sunZones"        class="btn btn-layer">☀️ Sun</button>
+      <button id="toggle_grid"            class="btn btn-layer">⊞ Grid</button>
+      <button id="toggle_gardenOutlines"  class="btn btn-layer">🌿 Gardens</button>
       <button id="toggle_propertyOutline" class="btn btn-layer">🔴 Boundary</button>
     </div>
 
     <div class="toolbar-sep"></div>
 
     <div class="toolbar-group">
-      <button id="btnFitView"    class="btn btn-ghost">⊡ Fit View</button>
-      <button id="btnOpenEditor" class="btn btn-primary">✏️ Zone Editor</button>
+      <span class="toolbar-label">Paint</span>
+      <button id="btnPaintGrass" class="btn btn-layer">🌿 Grass</button>
+      <button id="btnPaintSoil"  class="btn btn-layer">🪱 Garden</button>
+    </div>
+
+    <div class="toolbar-sep"></div>
+
+    <div class="toolbar-group">
+      <button id="btnFitView"    class="btn btn-ghost">⊡ Fit</button>
+      <button id="btnExportMap"  class="btn btn-ghost">📤 Export</button>
+      <button id="btnOpenEditor" class="btn btn-primary">✏️ Zones</button>
     </div>
   </div>
 
   <!-- Zone Editor panel (slides in from right) -->
   <div id="editorPanel">
     <h2>✏️ Zone Editor</h2>
-    <p>Calibrate the zone polygons to match your yard exactly.</p>
+    <p>Calibrate zone and structure polygons.</p>
 
     <div class="editor-instructions">
-      <strong>How to edit a zone:</strong><br>
-      1. Pick a zone below and click <strong>Load</strong><br>
-      2. <strong>Click</strong> on the map to add / move points<br>
-      3. <strong>Right-click</strong> to remove the last point<br>
-      4. <kbd>Enter</kbd> or <strong>Save</strong> when done<br>
-      5. <kbd>Esc</kbd> to clear in-progress points<br>
-      6. <kbd>F</kbd> to reset view, <kbd>E</kbd> to toggle panel
+      <strong>How to edit:</strong><br>
+      1. Pick a zone/structure → <strong>Load</strong><br>
+      2. <strong>Drag</strong> handles to move points<br>
+      3. <strong>Click an edge</strong> (green +) to add a point<br>
+      4. <strong>Right-click a handle</strong> to remove it<br>
+      5. <kbd>Ctrl Z</kbd> / <strong>Undo</strong> to step back<br>
+      6. <kbd>Enter</kbd> / <strong>Save</strong> when done
     </div>
 
-    <label for="editorZoneSelect" style="font-size:12px;color:var(--text-muted)">Zone to edit:</label>
+    <label for="editorZoneSelect" style="font-size:12px;color:var(--text-muted)">Edit:</label>
     <select id="editorZoneSelect">
-      <option value="property">Property Boundary (red)</option>
-      <option value="garden_house">Garden — near house (green)</option>
-      <option value="garden_main">Garden — main (green)</option>
+      <optgroup label="Zones">
+        <option value="property">Property Boundary</option>
+        <option value="garden_house">Garden — near house</option>
+        <option value="garden_main">Garden — main</option>
+      </optgroup>
+      <optgroup label="Structures">
+        <option value="house">House</option>
+        <option value="garage">Garage</option>
+        <option value="driveway">Driveway</option>
+      </optgroup>
     </select>
 
     <div class="editor-row">
-      <button id="btnLoadZone"  class="btn btn-ghost">📥 Load Zone</button>
-      <button id="btnClearZone" class="btn btn-ghost">🗑 Clear Points</button>
+      <button id="btnLoadZone"  class="btn btn-ghost">📥 Load</button>
+      <button id="btnClearZone" class="btn btn-ghost">🗑 Clear</button>
+      <button id="btnUndo"      class="btn btn-ghost">↩ Undo</button>
     </div>
 
     <div class="editor-divider"></div>
 
     <div class="editor-row">
-      <button id="btnSaveZone"   class="btn btn-primary">💾 Save Zone</button>
-      <button id="btnCopyJSON"   class="btn btn-ghost">📋 Copy JSON</button>
+      <button id="btnSaveZone" class="btn btn-primary">💾 Save</button>
+      <button id="btnCopyJSON" class="btn btn-ghost">📋 Copy JSON</button>
     </div>
 
     <div class="editor-divider"></div>
-
     <button id="btnResetZones" class="btn btn-danger" style="width:100%">↩ Reset All to Defaults</button>
   </div>
 
-  <!-- Toast notification (created by JS, styled by CSS) -->
+  <!-- Item info popup -->
+  <div id="itemPopup" class="hidden">
+    <div class="popup-header">
+      <span id="popupEmoji" class="popup-emoji"></span>
+      <strong id="popupName"></strong>
+      <button id="popupClose" class="popup-close-btn" title="Close">✕</button>
+    </div>
+    <div id="popupDetails"></div>
+    <button id="popupDelete" class="btn btn-danger" style="width:100%;margin-top:8px">🗑 Remove</button>
+  </div>
 
-  <!-- Scripts -->
+  <!-- Tuber soil-health warning modal -->
+  <div id="tuberModal" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-icon">⚠️</div>
+      <h3>Heads up about root crops</h3>
+      <p><strong id="tuberModalName"></strong> grows below the soil surface. Given potential soil quality concerns in this area, do you want to plant it here?</p>
+      <div class="modal-buttons">
+        <button id="tuberModalConfirm" class="btn btn-danger">Plant anyway</button>
+        <button id="tuberModalCancel"  class="btn btn-ghost">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts — order matters: zones/plants before game -->
   <script src="js/zones.js"></script>
+  <script src="js/plants.js"></script>
   <script src="js/chicken.js"></script>
   <script src="js/terrain.js"></script>
+  <script src="js/structures.js"></script>
   <script src="js/game.js"></script>
 </body>
 </html>
