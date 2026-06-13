@@ -481,41 +481,26 @@ function drawPlacedItems(ctx) {
   });
 }
 
-function _plantEmojiSize(cat) {
-  return Math.max(6, cat.spacingFt * PX_PER_FOOT * 1.4);
-}
-
-// Ring radius: spacingFt/2 so two touching rings = correctly spaced plants
+// Spacing ring radius — half the recommended center-to-center distance.
+// Minimum 8px (1.6ft) so the sprite is always readable.
 function _spacingRingR(cat) {
-  return Math.max(PX_PER_FOOT * 0.6, cat.spacingFt * PX_PER_FOOT * 0.5);
+  return Math.max(PX_PER_FOOT * 1.6, cat.spacingFt * PX_PER_FOOT * 0.5);
 }
 
 function _drawPlant(ctx, cat, isSelected, item) {
-  const r    = _spacingRingR(cat);
-  const emsz = _plantEmojiSize(cat);
+  const r = _spacingRingR(cat);
 
-  // Spacing ring
-  ctx.strokeStyle = isSelected ? 'rgba(255,220,80,0.7)' : 'rgba(100,210,80,0.35)';
-  ctx.lineWidth   = (isSelected ? 1.5 : 1) / viewport.zoom;
+  // Dashed spacing ring (thin, behind the sprite)
+  ctx.strokeStyle = isSelected ? 'rgba(255,220,80,0.55)' : 'rgba(180,230,130,0.28)';
+  ctx.lineWidth   = (isSelected ? 1.5 : 0.8) / viewport.zoom;
   ctx.setLineDash([3 / viewport.zoom, 3 / viewport.zoom]);
   ctx.beginPath();
   ctx.arc(0, 0, r, 0, Math.PI * 2);
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // Selection glow
-  if (isSelected) {
-    ctx.fillStyle = 'rgba(255,220,80,0.18)';
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Emoji
-  ctx.font         = `${emsz}px serif`;
-  ctx.textAlign    = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(cat.emoji, 0, 0);
+  // Opaque sprite centered in the spacing circle
+  drawPlantSprite(ctx, cat, r, isSelected);
 }
 
 function _drawStructureItem(ctx, cat, isSelected, item) {
@@ -564,21 +549,31 @@ function getRowPositions(start, end, cat) {
 }
 
 function _drawGhostPlantAt(ctx, cat, sx, sy) {
-  const r    = _spacingRingR(cat);
-  const emsz = _plantEmojiSize(cat);
+  const r = _spacingRingR(cat);
   const overlap = placedItems.some(it => {
     const oc = getCatalogEntry(it.catalogId);
     if (!oc || !isPlant(oc)) return false;
     return Math.hypot(it.x - sx, it.y - sy) < cat.spacingFt * PX_PER_FOOT;
   });
-  ctx.strokeStyle = overlap ? 'rgba(255,80,80,0.75)' : 'rgba(100,220,80,0.75)';
-  ctx.lineWidth   = 1.2 / viewport.zoom;
-  ctx.setLineDash([3 / viewport.zoom, 3 / viewport.zoom]);
-  ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.stroke();
+
+  ctx.save();
+  ctx.translate(sx, sy);
+
+  // Opaque sprite (same as placed, slightly dimmed)
+  ctx.globalAlpha = 0.82;
+  drawPlantSprite(ctx, cat, r, false);
+  ctx.globalAlpha = 1;
+
+  // Placement ring — green (clear) or red (overlap)
+  ctx.strokeStyle = overlap ? 'rgba(255,60,60,0.9)' : 'rgba(80,220,80,0.8)';
+  ctx.lineWidth   = 1.5 / viewport.zoom;
+  ctx.setLineDash([4 / viewport.zoom, 3 / viewport.zoom]);
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.stroke();
   ctx.setLineDash([]);
-  ctx.font = `${emsz}px serif`;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(cat.emoji, sx, sy);
+
+  ctx.restore();
 }
 
 function drawPlacementGhost(ctx) {
